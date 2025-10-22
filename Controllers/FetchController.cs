@@ -95,10 +95,10 @@ namespace MyApp.Controllers
             };
         }
 
-        public class FetchRequest { public string Url { get; set; } }
+        public class FetchRequest { public required string Url { get; set; } }
 
-        [HttpPost("fetch")]
-        public async Task<IActionResult> Fetch([FromBody] FetchRequest req)
+        [HttpPost("securefetch")]
+        public async Task<IActionResult> SecureFetch([FromBody] FetchRequest req)
         {
             if (req == null || string.IsNullOrWhiteSpace(req.Url))
                 return BadRequest("url is required");
@@ -131,6 +131,51 @@ namespace MyApp.Controllers
                 if (IsForbidden(ip)) return BadRequest("resolved address is disallowed");
             }
 
+            // make request (no auto-redirects)
+            using var msg = new HttpRequestMessage(HttpMethod.Get, uri);
+            using var resp = await HttpClient.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead);
+
+            // refuse manual redirect chains (since auto-redirects are off)
+            if ((int)resp.StatusCode is >= 300 and < 400)
+                return BadRequest("redirects not allowed");
+
+            // simple size enforcement: if Content-Length present and too big, reject
+            if (resp.Content.Headers.ContentLength is long len && len > MaxResponseBytes)
+                return BadRequest("content too large");
+
+            await using var stream = await resp.Content.ReadAsStreamAsync();
+            using var ms = new MemoryStream();
+            var buffer = new byte[8192];
+            int read;
+            long total = 0;
+
+            while ((read = await stream.ReadAsync(buffer, 0, buffer.Length)) > 0)
+            {
+                total += read;
+                if (total > MaxResponseBytes) return BadRequest("response too large");
+                ms.Write(buffer, 0, read);
+            }
+
+            var data = ms.ToArray();
+            var snippet = TryUtf8(data, Math.Min(256, data.Length));
+
+            return Ok(new
+            {
+                status = (int)resp.StatusCode,
+                contentType = resp.Content.Headers.ContentType?.ToString(),
+                size = data.Length,
+                snippet
+            });
+        }
+
+        [HttpPost("fetch")]
+        public async Task<IActionResult> Fetch([FromBody] FetchRequest req)
+        {
+            if (req == null || string.IsNullOrWhiteSpace(req.Url))
+                return BadRequest("url is required");
+
+            if (!Uri.TryCreate(req.Url.Trim(), UriKind.Absolute, out var uri))
+                return BadRequest("invalid url");
             // make request (no auto-redirects)
             using var msg = new HttpRequestMessage(HttpMethod.Get, uri);
             using var resp = await HttpClient.SendAsync(msg, HttpCompletionOption.ResponseHeadersRead);

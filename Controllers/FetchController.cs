@@ -30,55 +30,75 @@ namespace MyApp.Controllers
 
         private sealed class IPAddressRange
         {
-            private readonly BigInteger startNum;
-            private readonly BigInteger endNum;
-
-            public IPAddress Start { get; }
-            public IPAddress End { get; }
+            private readonly IPAddress Start;
+            private readonly IPAddress End;
 
             public IPAddressRange(IPAddress start, IPAddress end)
             {
                 if (start == null || end == null)
                     throw new ArgumentNullException();
 
-                Start = start;
-                End = end;
+                // Normalize address family (IPv4 vs IPv6)
+                if (start.AddressFamily != end.AddressFamily)
+                    throw new ArgumentException("Start and end must be same address family");
 
-                var startVal = ToBigInteger(start);
-                var endVal = ToBigInteger(end);
-
-                // Ensure start <= end
-                if (startVal <= endVal)
+                // Ensure Start <= End (lexicographically)
+                if (CompareBytes(start, end) <= 0)
                 {
-                    startNum = startVal;
-                    endNum = endVal;
+                    Start = start;
+                    End = end;
                 }
                 else
                 {
-                    startNum = endVal;
-                    endNum = startVal;
+                    Start = end;
+                    End = start;
                 }
             }
 
             public bool Contains(IPAddress address)
             {
+                Console.WriteLine("IPAddress Contains : {0} ",address);
                 if (address == null) return false;
-                var value = ToBigInteger(address);
-                return value >= startNum && value <= endNum;
+                if (address.AddressFamily != Start.AddressFamily) return false;
+
+                return CompareBytes(Start, address) <= 0 &&
+                    CompareBytes(address, End) <= 0;
             }
 
-            private static BigInteger ToBigInteger(IPAddress ip)
+            private static int CompareBytes(IPAddress a, IPAddress b)
             {
-                var bytes = ip.GetAddressBytes();
-                Array.Reverse(bytes); // BigInteger expects little-endian
-                return new BigInteger(bytes.Concat(new byte[] { 0 }).ToArray());
-            } 
+                var aBytes = a.GetAddressBytes();
+                var bBytes = b.GetAddressBytes();
 
+                // Pad IPv4 addresses to 16 bytes to match IPv6 if needed
+                if (aBytes.Length < bBytes.Length)
+                    aBytes = PadLeft(aBytes, bBytes.Length);
+                else if (bBytes.Length < aBytes.Length)
+                    bBytes = PadLeft(bBytes, aBytes.Length);
+
+                for (int i = 0; i < aBytes.Length; i++)
+                {
+                    int diff = aBytes[i].CompareTo(bBytes[i]);
+                    if (diff != 0)
+                    {   
+                        Console.WriteLine("diff : {0} ",diff);
+                        return diff;
+                    }
+                }
+                return 0;
+            }
+
+            private static byte[] PadLeft(byte[] bytes, int totalLength)
+            {
+                var result = new byte[totalLength];
+                Buffer.BlockCopy(bytes, 0, result, totalLength - bytes.Length, bytes.Length);
+                return result;
+            }
         } 
 
         private static bool IsInternalIp(IPAddress ip)
         {
-
+            Console.WriteLine("IsInternalIp check: {0}",ip);
             // Check if the IP falls within any of these ranges
             // You would need a custom implementation for IPAddressRange
             return PrivateRanges.Any(r => r.Contains(ip));

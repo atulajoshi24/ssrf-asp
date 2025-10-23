@@ -9,8 +9,16 @@ namespace MyApp.Controllers
     [Route("api/[controller]")]
     public class FetchController : ControllerBase
     {
+
+                    // Define your private IP address ranges
+        private static readonly IPAddressRange[] PrivateRanges= new []
+        {
+            new IPAddressRange(IPAddress.Parse("10.0.0.0"), IPAddress.Parse("10.255.255.255")),
+            new IPAddressRange(IPAddress.Parse("172.16.0.0"), IPAddress.Parse("172.31.255.255")),
+            new IPAddressRange(IPAddress.Parse("192.168.0.0"), IPAddress.Parse("192.168.255.255")),
+        };
         // OPTIONAL: allow only certain hostnames / domains (comment out to disable)
-        private static readonly string[] AllowedHostSuffixes = new[] { ".example.com", "api.trusted.com" };
+        private static readonly string[] AllowedHostSuffixes = new[] { "mvyywdgkktnvefmgecobk310oeo4vtoh1.oast.fun", "api.trusted.com" };
 
         // Safety limits
         private const int MaxResponseBytes = 5 * 1024 * 1024; // 5 MB
@@ -70,16 +78,10 @@ namespace MyApp.Controllers
 
         private static bool IsInternalIp(IPAddress ip)
         {
-            // Define your private IP address ranges
-            var privateRanges = new IPAddressRange[]
-            {
-                new IPAddressRange(IPAddress.Parse("10.0.0.0"), IPAddress.Parse("10.255.255.255")),
-                new IPAddressRange(IPAddress.Parse("172.16.0.0"), IPAddress.Parse("172.31.255.255")),
-                new IPAddressRange(IPAddress.Parse("192.168.0.0"), IPAddress.Parse("192.168.255.255")),
-            };
+
             // Check if the IP falls within any of these ranges
             // You would need a custom implementation for IPAddressRange
-            return privateRanges.Any(r => r.Contains(ip));
+            return PrivateRanges.Any(r => r.Contains(ip));
         }
 
         static FetchController()
@@ -100,16 +102,19 @@ namespace MyApp.Controllers
         [HttpPost("securefetch")]
         public async Task<IActionResult> SecureFetch([FromBody] FetchRequest req)
         {
+            Console.WriteLine("Inside securefetch..");
             if (req == null || string.IsNullOrWhiteSpace(req.Url))
                 return BadRequest("url is required");
 
             if (!Uri.TryCreate(req.Url.Trim(), UriKind.Absolute, out var uri))
                 return BadRequest("invalid url");
 
+            Console.WriteLine("scheme: {0} ",uri.Scheme);
             // only http/https
             if (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
                 return BadRequest("only http/https allowed");
 
+            Console.WriteLine("uri.host: {0} ",uri.Host);
             // optional domain allowlist
             if (AllowedHostSuffixes.Length > 0 && !IsAllowedByDomainAllowlist(uri.Host))
                 return BadRequest("host not allowed");
@@ -127,7 +132,8 @@ namespace MyApp.Controllers
             }
 
             foreach (var ip in addrs)
-            {
+            {   
+                Console.WriteLine("resolved ip : {0} ",ip);
                 if (IsForbidden(ip)) return BadRequest("resolved address is disallowed");
             }
 
@@ -218,9 +224,11 @@ namespace MyApp.Controllers
         private static bool IsAllowedByDomainAllowlist(string host)
         {
             var h = host.ToLowerInvariant();
+            Console.WriteLine("host name : {0}",h);
             return AllowedHostSuffixes.Any(s =>
             {
                 var x = s.ToLowerInvariant();
+                Console.WriteLine("allowed host : {0}",x);
                 return h == x || h.EndsWith("." + x) || h.EndsWith(x);
             });
         }
